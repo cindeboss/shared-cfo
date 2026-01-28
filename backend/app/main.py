@@ -26,12 +26,19 @@ async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     # 启动时
     logger.info("应用启动中...")
-    await mongo.connect()
+    try:
+        await mongo.connect()
+        logger.info("MongoDB 连接成功")
+    except Exception as e:
+        logger.warning(f"MongoDB 连接失败，将以离线模式运行: {e}")
     logger.info("应用启动完成")
     yield
     # 关闭时
     logger.info("应用关闭中...")
-    await mongo.disconnect()
+    try:
+        await mongo.disconnect()
+    except Exception:
+        pass
     logger.info("应用关闭完成")
 
 

@@ -31,8 +31,7 @@ pydantic-settings>=2.1.0
 python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4
 
-# CORS
-python-cors>=1.0.0
+# CORS (FastAPI 内置，无需额外依赖)
 
 # 日志
 loguru>=0.7.0
