@@ -1,0 +1,43 @@
+# 共享CFO后端依赖
+
+# Web框架
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
+
+# 数据库
+pymongo>=4.6.0
+motor>=3.3.0
+qdrant-client>=1.7.0
+
+# AI模型
+zhipuai>=2.0.0
+openai>=1.10.0  # 用于兼容OpenAI API格式的embedding
+
+# RAG框架
+langchain>=0.1.0
+langchain-community>=0.0.20
+langchain-openai>=0.0.5
+
+# 向量处理
+numpy>=1.24.0
+sentence-transformers>=2.3.0
+
+# 数据验证
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# 认证
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+
+# CORS
+python-cors>=1.0.0
+
+# 日志
+loguru>=0.7.0
+
+# 工具
+python-dotenv>=1.0.0
+httpx>=0.26.0
+aiofiles>=23.2.0

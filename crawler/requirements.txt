@@ -1,0 +1,39 @@
+# 爬虫依赖包
+
+# HTTP请求
+requests>=2.31.0
+
+# HTML解析
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+
+# 数据验证
+pydantic>=2.0.0
+
+# 数据库
+pymongo>=4.5.0
+qdrant-client>=1.7.0
+
+# 异步支持
+aiohttp>=3.9.0
+asyncio>=3.4.3
+
+# 数据处理
+pandas>=2.0.0
+
+# 日期处理
+python-dateutil>=2.8.0
+
+# 爬虫框架（可选）
+scrapy>=2.11.0
+playwright>=1.40.0
+
+# GLM SDK
+zhipuai>=2.0.0
+
+# 日志
+loguru>=0.7.0
+
+# 工具
+python-dotenv>=1.0.0
+tqdm>=4.65.0

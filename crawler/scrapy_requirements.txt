@@ -1,0 +1,20 @@
+# Scrapy 爬虫依赖包
+
+# Scrapy 框架
+scrapy>=2.11.0
+
+# HTTP 请求
+requests>=2.31.0
+
+# HTML 解析
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+
+# 数据验证
+pydantic>=2.0.0
+
+# 数据库
+pymongo>=4.5.0
+
+# 工具
+python-dotenv>=1.0.0
