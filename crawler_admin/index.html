@@ -1,0 +1,1353 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>共享CFO - 爬虫控制台</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Orbitron:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-tertiary: #1a1a25;
+            --border-color: #2a2a3a;
+            --text-primary: #e0e0e0;
+            --text-secondary: #888899;
+            --accent-green: #00ff88;
+            --accent-orange: #ff6b35;
+            --accent-blue: #00d4ff;
+            --accent-red: #ff3366;
+            --glow-green: 0 0 20px rgba(0, 255, 136, 0.3);
+            --glow-orange: 0 0 20px rgba(255, 107, 53, 0.3);
+        }
+
+        body {
+            font-family: 'JetBrains Mono', monospace;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* Scanline effect */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 0, 0, 0.1) 0px,
+                rgba(0, 0, 0, 0.1) 1px,
+                transparent 1px,
+                transparent 2px
+            );
+            pointer-events: none;
+            z-index: 1000;
+            opacity: 0.3;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 0;
+            border-bottom: 2px solid var(--border-color);
+            margin-bottom: 30px;
+        }
+
+        .logo {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 24px;
+            font-weight: 900;
+            letter-spacing: 2px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            border: 2px solid var(--accent-green);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: pulse 2s infinite;
+        }
+
+        .logo-icon::before {
+            content: '';
+            width: 12px;
+            height: 12px;
+            background: var(--accent-green);
+            box-shadow: var(--glow-green);
+        }
+
+        .status-bar {
+            display: flex;
+            align-items: center;
+            gap: 30px;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            animation: blink 1.5s infinite;
+        }
+
+        .status-indicator.online { background: var(--accent-green); box-shadow: var(--glow-green); }
+        .status-indicator.offline { background: var(--accent-red); }
+        .status-indicator.warning { background: var(--accent-orange); box-shadow: var(--glow-orange); }
+
+        /* Main Grid */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 300px 1fr 350px;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        /* Panel Base */
+        .panel {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .panel::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--accent-green), var(--accent-blue));
+        }
+
+        .panel-header {
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .panel-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            color: var(--accent-green);
+        }
+
+        .panel-body {
+            padding: 20px;
+        }
+
+        /* Control Panel */
+        .control-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .control-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-secondary);
+        }
+
+        .btn {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            padding: 12px 20px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            cursor: pointer;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+            transition: left 0.5s;
+        }
+
+        .btn:hover::before {
+            left: 100%;
+        }
+
+        .btn:hover {
+            border-color: var(--accent-green);
+            box-shadow: var(--glow-green);
+        }
+
+        .btn-primary {
+            background: var(--accent-green);
+            color: var(--bg-primary);
+            border-color: var(--accent-green);
+            font-weight: 700;
+        }
+
+        .btn-primary:hover {
+            background: #00ff99;
+        }
+
+        .btn-warning {
+            border-color: var(--accent-orange);
+            color: var(--accent-orange);
+        }
+
+        .btn-warning:hover {
+            background: var(--accent-orange);
+            color: var(--bg-primary);
+        }
+
+        .btn-danger {
+            border-color: var(--accent-red);
+            color: var(--accent-red);
+        }
+
+        .btn-danger:hover {
+            background: var(--accent-red);
+            color: var(--bg-primary);
+        }
+
+        /* Phase Selectors */
+        .phase-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .phase-btn {
+            font-size: 11px;
+            padding: 10px;
+            text-align: center;
+            border: 1px solid var(--border-color);
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .phase-btn:hover, .phase-btn.active {
+            border-color: var(--accent-blue);
+            color: var(--accent-blue);
+            box-shadow: 0 0 10px rgba(0, 212, 255, 0.2);
+        }
+
+        /* Stats Display */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+        }
+
+        .stat-card {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            padding: 20px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background: var(--accent-green);
+            transform: scaleX(0);
+            transition: transform 0.3s;
+        }
+
+        .stat-card:hover::after {
+            transform: scaleX(1);
+        }
+
+        .stat-value {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 36px;
+            font-weight: 900;
+            color: var(--accent-green);
+            line-height: 1;
+            margin-bottom: 8px;
+        }
+
+        .stat-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-secondary);
+        }
+
+        .stat-change {
+            font-size: 10px;
+            margin-top: 8px;
+        }
+
+        .stat-change.positive { color: var(--accent-green); }
+        .stat-change.negative { color: var(--accent-red); }
+
+        /* Chart Area */
+        .chart-container {
+            height: 250px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            padding: 20px;
+            position: relative;
+        }
+
+        .chart-bars {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            height: 180px;
+            gap: 8px;
+        }
+
+        .chart-bar {
+            flex: 1;
+            background: linear-gradient(180deg, var(--accent-green), var(--accent-blue));
+            opacity: 0.7;
+            transition: all 0.3s;
+            position: relative;
+            min-height: 20%;
+        }
+
+        .chart-bar:hover {
+            opacity: 1;
+            box-shadow: 0 0 20px rgba(0, 255, 136, 0.5);
+        }
+
+        .chart-bar::before {
+            content: attr(data-value);
+            position: absolute;
+            top: -25px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 11px;
+            color: var(--accent-green);
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .chart-bar:hover::before {
+            opacity: 1;
+        }
+
+        .chart-labels {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 15px;
+            font-size: 10px;
+            color: var(--text-secondary);
+        }
+
+        /* Log Panel */
+        .log-panel {
+            height: 400px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .log-content {
+            flex: 1;
+            overflow-y: auto;
+            font-size: 12px;
+            line-height: 1.6;
+            padding: 15px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+        }
+
+        .log-entry {
+            margin-bottom: 8px;
+            display: flex;
+            gap: 10px;
+            opacity: 0;
+            animation: fadeIn 0.3s forwards;
+        }
+
+        .log-time {
+            color: var(--text-secondary);
+            flex-shrink: 0;
+        }
+
+        .log-message {
+            flex: 1;
+        }
+
+        .log-entry.info .log-message { color: var(--text-primary); }
+        .log-entry.success .log-message { color: var(--accent-green); }
+        .log-entry.warning .log-message { color: var(--accent-orange); }
+        .log-entry.error .log-message { color: var(--accent-red); }
+
+        .log-content::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .log-content::-webkit-scrollbar-track {
+            background: var(--bg-secondary);
+        }
+
+        .log-content::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+        }
+
+        /* Activity Feed */
+        .activity-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .activity-item {
+            display: flex;
+            gap: 15px;
+            padding: 12px;
+            background: var(--bg-tertiary);
+            border-left: 3px solid var(--border-color);
+            transition: all 0.2s;
+        }
+
+        .activity-item:hover {
+            border-left-color: var(--accent-green);
+            transform: translateX(5px);
+        }
+
+        .activity-icon {
+            width: 32px;
+            height: 32px;
+            border: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            font-size: 14px;
+        }
+
+        .activity-content {
+            flex: 1;
+        }
+
+        .activity-title {
+            font-size: 12px;
+            margin-bottom: 4px;
+        }
+
+        .activity-time {
+            font-size: 10px;
+            color: var(--text-secondary);
+        }
+
+        /* Progress Ring */
+        .progress-ring {
+            width: 120px;
+            height: 120px;
+            margin: 0 auto 20px;
+            position: relative;
+        }
+
+        .progress-ring svg {
+            transform: rotate(-90deg);
+        }
+
+        .progress-ring-bg {
+            fill: none;
+            stroke: var(--border-color);
+            stroke-width: 8;
+        }
+
+        .progress-ring-bar {
+            fill: none;
+            stroke: var(--accent-green);
+            stroke-width: 8;
+            stroke-linecap: round;
+            transition: stroke-dashoffset 0.5s;
+        }
+
+        .progress-ring-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+
+        .progress-ring-value {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 28px;
+            font-weight: 900;
+            color: var(--accent-green);
+        }
+
+        .progress-ring-label {
+            font-size: 10px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+        }
+
+        /* Animations */
+        @keyframes pulse {
+            0%, 100% { box-shadow: var(--glow-green); }
+            50% { box-shadow: 0 0 30px rgba(0, 255, 136, 0.6); }
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        @keyframes fadeIn {
+            to { opacity: 1; }
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        /* Responsive */
+        @media (max-width: 1200px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        /* Loading State */
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--border-color);
+            border-top-color: var(--accent-green);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Badge */
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border: 1px solid;
+        }
+
+        .badge-success {
+            border-color: var(--accent-green);
+            color: var(--accent-green);
+        }
+
+        .badge-warning {
+            border-color: var(--accent-orange);
+            color: var(--accent-orange);
+        }
+
+        .badge-error {
+            border-color: var(--accent-red);
+            color: var(--accent-red);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <div class="logo-icon"></div>
+                <span>SHARED_CFO</span>
+                <span style="color: var(--text-secondary); font-weight: 400; font-size: 14px;">// CRAWLER ADMIN</span>
+            </div>
+            <div class="status-bar">
+                <div class="status-item">
+                    <div class="status-indicator online" id="serverStatus"></div>
+                    <span id="serverStatusText">服务器在线</span>
+                </div>
+                <div class="status-item">
+                    <div class="status-indicator warning" id="crawlerStatus"></div>
+                    <span id="crawlerStatusText">爬虫待机</span>
+                </div>
+                <div class="status-item">
+                    <span style="color: var(--accent-green);">●</span>
+                    <span id="lastUpdate">刚刚更新</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Dashboard -->
+        <div class="dashboard-grid">
+            <!-- Left Panel: Controls -->
+            <div class="panel">
+                <div class="panel-header">
+                    <span class="panel-title">控制中心</span>
+                    <span class="badge badge-success">READY</span>
+                </div>
+                <div class="panel-body">
+                    <div class="control-panel">
+                        <!-- Crawler Status -->
+                        <div class="control-group">
+                            <div class="progress-ring">
+                                <svg width="120" height="120">
+                                    <circle class="progress-ring-bg" cx="60" cy="60" r="52"></circle>
+                                    <circle class="progress-ring-bar" cx="60" cy="60" r="52"
+                                        stroke-dasharray="326.73"
+                                        stroke-dashoffset="326.73"
+                                        id="progressRing"></circle>
+                                </svg>
+                                <div class="progress-ring-text">
+                                    <div class="progress-ring-value" id="progressValue">0%</div>
+                                    <div class="progress-ring-label">进度</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Crawl Phase -->
+                        <div class="control-group">
+                            <label class="control-label">爬取阶段</label>
+                            <div class="phase-grid">
+                                <div class="phase-btn active" data-phase="test">测试</div>
+                                <div class="phase-btn" data-phase="week1">第1周</div>
+                                <div class="phase-btn" data-phase="week2">第2周</div>
+                                <div class="phase-btn" data-phase="week3">第3周</div>
+                                <div class="phase-btn" data-phase="complete">完整</div>
+                                <div class="phase-btn" data-phase="custom">自定义</div>
+                            </div>
+                        </div>
+
+                        <!-- Actions -->
+                        <div class="control-group">
+                            <label class="control-label">操作</label>
+                            <button class="btn btn-primary" id="startCrawl">
+                                <span style="margin-right: 8px;">▶</span>启动爬虫
+                            </button>
+                            <button class="btn btn-warning" id="pauseCrawl" disabled>
+                                <span style="margin-right: 8px;">⏸</span>暂停爬虫
+                            </button>
+                            <button class="btn btn-danger" id="stopCrawl" disabled>
+                                <span style="margin-right: 8px;">⏹</span>停止爬虫
+                            </button>
+                        </div>
+
+                        <!-- Quick Actions -->
+                        <div class="control-group">
+                            <label class="control-label">快速操作</label>
+                            <button class="btn" id="buildRelationships">
+                                <span style="margin-right: 8px;">🔗</span>构建关联关系
+                            </button>
+                            <button class="btn" id="validateData">
+                                <span style="margin-right: 8px;">✓</span>验证数据质量
+                            </button>
+                            <button class="btn" id="exportData">
+                                <span style="margin-right: 8px;">📥</span>导出数据
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Center Panel: Stats & Charts -->
+            <div style="display: flex; flex-direction: column; gap: 20px;">
+                <!-- Stats Cards -->
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value" id="totalPolicies">71</div>
+                        <div class="stat-label">总政策数</div>
+                        <div class="stat-change positive">↑ 本周 +12</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="l1Count">7</div>
+                        <div class="stat-label">L1 法律</div>
+                        <div class="stat-change">占比 9.9%</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="l2Count">4</div>
+                        <div class="stat-label">L2 法规</div>
+                        <div class="stat-change">占比 5.6%</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="crawlRate">2.3</div>
+                        <div class="stat-label">爬取/分钟</div>
+                        <div class="stat-change positive">↑ +15%</div>
+                    </div>
+                </div>
+
+                <!-- Chart -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <span class="panel-title">爬取趋势 (近7天)</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="chart-container">
+                            <div class="chart-bars" id="chartBars">
+                                <div class="chart-bar" style="height: 40%;" data-value="12"></div>
+                                <div class="chart-bar" style="height: 65%;" data-value="18"></div>
+                                <div class="chart-bar" style="height: 35%;" data-value="9"></div>
+                                <div class="chart-bar" style="height: 80%;" data-value="22"></div>
+                                <div class="chart-bar" style="height: 55%;" data-value="15"></div>
+                                <div class="chart-bar" style="height: 90%;" data-value="25"></div>
+                                <div class="chart-bar" style="height: 70%;" data-value="19"></div>
+                            </div>
+                            <div class="chart-labels">
+                                <span>周一</span>
+                                <span>周二</span>
+                                <span>周三</span>
+                                <span>周四</span>
+                                <span>周五</span>
+                                <span>周六</span>
+                                <span>周日</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Distribution -->
+                <div class="panel" style="flex: 1;">
+                    <div class="panel-header">
+                        <span class="panel-title">来源分布</span>
+                    </div>
+                    <div class="panel-body">
+                        <div style="display: flex; flex-direction: column; gap: 15px;">
+                            <div style="display: flex; align-items: center; gap: 15px;">
+                                <div style="width: 120px; font-size: 12px; color: var(--text-secondary);">国税总局</div>
+                                <div style="flex: 1; height: 24px; background: var(--bg-tertiary); border: 1px solid var(--border-color); position: relative; overflow: hidden;">
+                                    <div style="width: 84.5%; height: 100%; background: linear-gradient(90deg, var(--accent-green), var(--accent-blue)); animation: slideIn 1s;"></div>
+                                    <span style="position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 11px;">60 条 (84.5%)</span>
+                                </div>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 15px;">
+                                <div style="width: 120px; font-size: 12px; color: var(--text-secondary);">全国人大</div>
+                                <div style="flex: 1; height: 24px; background: var(--bg-tertiary); border: 1px solid var(--border-color); position: relative; overflow: hidden;">
+                                    <div style="width: 5.6%; height: 100%; background: linear-gradient(90deg, var(--accent-orange), var(--accent-red)); animation: slideIn 1s 0.1s;"></div>
+                                    <span style="position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 11px;">4 条 (5.6%)</span>
+                                </div>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 15px;">
+                                <div style="width: 120px; font-size: 12px; color: var(--text-secondary);">国务院</div>
+                                <div style="flex: 1; height: 24px; background: var(--bg-tertiary); border: 1px solid var(--border-color); position: relative; overflow: hidden;">
+                                    <div style="width: 5.6%; height: 100%; background: linear-gradient(90deg, var(--accent-blue), var(--accent-green)); animation: slideIn 1s 0.2s;"></div>
+                                    <span style="position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 11px;">4 条 (5.6%)</span>
+                                </div>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 15px;">
+                                <div style="width: 120px; font-size: 12px; color: var(--text-secondary);">国家税务总局</div>
+                                <div style="flex: 1; height: 24px; background: var(--bg-tertiary); border: 1px solid var(--border-color); position: relative; overflow: hidden;">
+                                    <div style="width: 4.2%; height: 100%; background: linear-gradient(90deg, var(--accent-green), var(--accent-orange)); animation: slideIn 1s 0.3s;"></div>
+                                    <span style="position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 11px;">3 条 (4.2%)</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel: Activity & Logs -->
+            <div style="display: flex; flex-direction: column; gap: 20px;">
+                <!-- Activity Feed -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <span class="panel-title">最近活动</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="activity-list" id="activityList">
+                            <div class="activity-item">
+                                <div class="activity-icon" style="color: var(--accent-green);">✓</div>
+                                <div class="activity-content">
+                                    <div class="activity-title">爬虫成功完成 test 阶段</div>
+                                    <div class="activity-time">2 分钟前</div>
+                                </div>
+                            </div>
+                            <div class="activity-item">
+                                <div class="activity-icon" style="color: var(--accent-blue);">🔗</div>
+                                <div class="activity-content">
+                                    <div class="activity-title">构建了 15 条政策关联关系</div>
+                                    <div class="activity-time">15 分钟前</div>
+                                </div>
+                            </div>
+                            <div class="activity-item">
+                                <div class="activity-icon" style="color: var(--accent-orange);">⚠</div>
+                                <div class="activity-content">
+                                    <div class="activity-title">检测到 3 条重复政策</div>
+                                    <div class="activity-time">1 小时前</div>
+                                </div>
+                            </div>
+                            <div class="activity-item">
+                                <div class="activity-icon" style="color: var(--accent-green);">▶</div>
+                                <div class="activity-content">
+                                    <div class="activity-title">启动爬虫 - 阶段: test</div>
+                                    <div class="activity-time">2 小时前</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Log Panel -->
+                <div class="panel log-panel">
+                    <div class="panel-header">
+                        <span class="panel-title">实时日志</span>
+                        <button class="btn" style="padding: 5px 10px; font-size: 10px;" id="clearLogs">清除</button>
+                    </div>
+                    <div class="log-content" id="logContent">
+                        <div class="log-entry info">
+                            <span class="log-time">[2026-01-28 23:15:23]</span>
+                            <span class="log-message">系统初始化完成</span>
+                        </div>
+                        <div class="log-entry info">
+                            <span class="log-time">[2026-01-28 23:15:24]</span>
+                            <span class="log-message">连接到 MongoDB: localhost:27017</span>
+                        </div>
+                        <div class="log-entry success">
+                            <span class="log-time">[2026-01-28 23:15:25]</span>
+                            <span class="log-message">数据库连接成功</span>
+                        </div>
+                        <div class="log-entry info">
+                            <span class="log-time">[2026-01-28 23:15:26]</span>
+                            <span class="log-message">加载爬虫配置...</span>
+                        </div>
+                        <div class="log-entry success">
+                            <span class="log-time">[2026-01-28 23:15:27]</span>
+                            <span class="log-message">配置加载完成，当前阶段: test</span>
+                        </div>
+                        <div class="log-entry info">
+                            <span class="log-time">[2026-01-28 23:15:28]</span>
+                            <span class="log-message">等待启动命令...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom Panel: Recent Policies -->
+        <div class="panel">
+            <div class="panel-header">
+                <span class="panel-title">最近爬取的政策</span>
+                <div style="display: flex; gap: 10px;">
+                    <input type="text" placeholder="搜索政策..." style="padding: 8px 15px; background: var(--bg-tertiary); border: 1px solid var(--border-color); color: var(--text-primary); font-family: 'JetBrains Mono', monospace; font-size: 12px; width: 200px;">
+                    <button class="btn" style="padding: 8px 15px; font-size: 11px;">搜索</button>
+                </div>
+            </div>
+            <div class="panel-body">
+                <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                    <thead>
+                        <tr style="border-bottom: 1px solid var(--border-color);">
+                            <th style="padding: 12px; text-align: left; color: var(--text-secondary); font-weight: 400; text-transform: uppercase; font-size: 11px;">ID</th>
+                            <th style="padding: 12px; text-align: left; color: var(--text-secondary); font-weight: 400; text-transform: uppercase; font-size: 11px;">标题</th>
+                            <th style="padding: 12px; text-align: left; color: var(--text-secondary); font-weight: 400; text-transform: uppercase; font-size: 11px;">来源</th>
+                            <th style="padding: 12px; text-align: left; color: var(--text-secondary); font-weight: 400; text-transform: uppercase; font-size: 11px;">层级</th>
+                            <th style="padding: 12px; text-align: left; color: var(--text-secondary); font-weight: 400; text-transform: uppercase; font-size: 11px;">日期</th>
+                            <th style="padding: 12px; text-align: left; color: var(--text-secondary); font-weight: 400; text-transform: uppercase; font-size: 11px;">状态</th>
+                        </tr>
+                    </thead>
+                    <tbody id="policyTable">
+                        <tr style="border-bottom: 1px solid var(--border-color); transition: background 0.2s;">
+                            <td style="padding: 12px; color: var(--accent-green);">#POL_001</td>
+                            <td style="padding: 12px;">中华人民共和国增值税暂行条例</td>
+                            <td style="padding: 12px;"><span class="badge badge-success">chinatax</span></td>
+                            <td style="padding: 12px;">L1</td>
+                            <td style="padding: 12px; color: var(--text-secondary);">2026-01-28</td>
+                            <td style="padding: 12px;"><span style="color: var(--accent-green);">●</span> 已完成</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid var(--border-color); transition: background 0.2s;">
+                            <td style="padding: 12px; color: var(--accent-green);">#POL_002</td>
+                            <td style="padding: 12px;">中华人民共和国企业所得税法</td>
+                            <td style="padding: 12px;"><span class="badge badge-success">全国人大</span></td>
+                            <td style="padding: 12px;">L1</td>
+                            <td style="padding: 12px; color: var(--text-secondary);">2026-01-28</td>
+                            <td style="padding: 12px;"><span style="color: var(--accent-green);">●</span> 已完成</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid var(--border-color); transition: background 0.2s;">
+                            <td style="padding: 12px; color: var(--accent-green);">#POL_003</td>
+                            <td style="padding: 12px;">中华人民共和国个人所得税法</td>
+                            <td style="padding: 12px;"><span class="badge badge-success">全国人大</span></td>
+                            <td style="padding: 12px;">L1</td>
+                            <td style="padding: 12px; color: var(--text-secondary);">2026-01-28</td>
+                            <td style="padding: 12px;"><span style="color: var(--accent-green);">●</span> 已完成</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid var(--border-color); transition: background 0.2s;">
+                            <td style="padding: 12px; color: var(--accent-green);">#POL_004</td>
+                            <td style="padding: 12px;">增值税暂行条例实施细则</td>
+                            <td style="padding: 12px;"><span class="badge badge-success">国家税务总局</span></td>
+                            <td style="padding: 12px;">L2</td>
+                            <td style="padding: 12px; color: var(--text-secondary);">2026-01-28</td>
+                            <td style="padding: 12px;"><span style="color: var(--accent-green);">●</span> 已完成</td>
+                        </tr>
+                        <tr style="transition: background 0.2s;">
+                            <td style="padding: 12px; color: var(--accent-green);">#POL_005</td>
+                            <td style="padding: 12px;">企业所得税法实施条例</td>
+                            <td style="padding: 12px;"><span class="badge badge-success">国务院</span></td>
+                            <td style="padding: 12px;">L2</td>
+                            <td style="padding: 12px; color: var(--text-secondary);">2026-01-28</td>
+                            <td style="padding: 12px;"><span style="color: var(--accent-green);">●</span> 已完成</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // API Configuration
+        const API_BASE = 'http://localhost:8000/api/v1/crawler';
+
+        // State
+        let currentPhase = 'test';
+        let isCrawling = false;
+        let stats = null;
+        let statusCheckInterval = null;
+
+        // DOM Elements
+        const progressRing = document.getElementById('progressRing');
+        const progressValue = document.getElementById('progressValue');
+        const logContent = document.getElementById('logContent');
+        const activityList = document.getElementById('activityList');
+        const phaseButtons = document.querySelectorAll('.phase-btn');
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            initEventListeners();
+            loadInitialData();
+            startStatusCheck();
+            addLog('系统初始化完成', 'info');
+            addLog('爬虫管理台已启动', 'success');
+        });
+
+        // Load initial data
+        async function loadInitialData() {
+            await Promise.all([
+                fetchStats(),
+                fetchLogs(),
+                fetchActivities()
+            ]);
+        }
+
+        // Event Listeners
+        function initEventListeners() {
+            // Phase buttons
+            phaseButtons.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    phaseButtons.forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    currentPhase = btn.dataset.phase;
+                    addLog(`切换到阶段: ${currentPhase}`, 'info');
+                });
+            });
+
+            // Control buttons
+            document.getElementById('startCrawl').addEventListener('click', startCrawl);
+            document.getElementById('pauseCrawl').addEventListener('click', pauseCrawl);
+            document.getElementById('stopCrawl').addEventListener('click', stopCrawl);
+            document.getElementById('buildRelationships').addEventListener('click', buildRelationships);
+            document.getElementById('validateData').addEventListener('click', validateData);
+            document.getElementById('exportData').addEventListener('click', exportData);
+            document.getElementById('clearLogs').addEventListener('click', clearLogs);
+        }
+
+        // Fetch stats from API
+        async function fetchStats() {
+            try {
+                const response = await fetch(`${API_BASE}/stats`);
+                if (!response.ok) throw new Error('获取统计数据失败');
+                stats = await response.json();
+                updateStatsUI(stats);
+            } catch (error) {
+                console.error('获取统计数据失败:', error);
+                // 使用默认值
+                addLog('无法连接到后端服务，使用离线模式', 'warning');
+            }
+        }
+
+        // Update stats UI
+        function updateStatsUI(data) {
+            // Update total policies
+            const totalEl = document.getElementById('totalPolicies');
+            if (totalEl) totalEl.textContent = data.total_policies || 0;
+
+            // Update level counts
+            const l1Count = data.by_level?.['L1'] || 0;
+            const l2Count = data.by_level?.['L2'] || 0;
+            const l1El = document.getElementById('l1Count');
+            const l2El = document.getElementById('l2Count');
+            if (l1El) l1El.textContent = l1Count;
+            if (l2El) l2El.textContent = l2Count;
+
+            // Update crawl rate
+            const rateEl = document.getElementById('crawlRate');
+            if (rateEl) rateEl.textContent = data.crawl_rate?.toFixed(1) || '0.0';
+
+            // Update source distribution (update the bars)
+            updateSourceDistribution(data.by_source || {});
+
+            // Update recent policies table
+            updateRecentPoliciesTable(data.recent_policies || []);
+        }
+
+        // Update source distribution
+        function updateSourceDistribution(bySource) {
+            const total = Object.values(bySource).reduce((a, b) => a + b, 0) || 1;
+            const sources = {
+                'chinatax': '国税总局',
+                '全国人大': '全国人大',
+                '国务院': '国务院',
+                '国家税务总局': '国家税务总局'
+            };
+
+            const distributionContainer = document.querySelector('.panel-body:has(.chart-labels)')?.parentElement
+                ?.querySelectorAll('.panel-body')[1];
+
+            // This would update the distribution bars dynamically
+            // For now, the static HTML will display until we implement dynamic updates
+        }
+
+        // Update recent policies table
+        function updateRecentPoliciesTable(policies) {
+            const tbody = document.getElementById('policyTable');
+            if (!tbody || !policies.length) return;
+
+            tbody.innerHTML = policies.slice(0, 5).map(policy => `
+                <tr style="border-bottom: 1px solid var(--border-color); transition: background 0.2s;">
+                    <td style="padding: 12px; color: var(--accent-green);">#${policy.policy_id || policy._id?.slice(0, 8) || 'UNKNOWN'}</td>
+                    <td style="padding: 12px;">${policy.title || '未命名政策'}</td>
+                    <td style="padding: 12px;"><span class="badge badge-success">${policy.source || '未知'}</span></td>
+                    <td style="padding: 12px;">${policy.level || '-'}</td>
+                    <td style="padding: 12px; color: var(--text-secondary);">${new Date(policy.crawled_at || policy.publish_date || Date.now()).toLocaleDateString('zh-CN')}</td>
+                    <td style="padding: 12px;"><span style="color: var(--accent-green);">●</span> 已完成</td>
+                </tr>
+            `).join('');
+        }
+
+        // Fetch logs from API
+        async function fetchLogs() {
+            try {
+                const response = await fetch(`${API_BASE}/logs?limit=20`);
+                if (!response.ok) return;
+                const logs = await response.json();
+                displayLogs(logs);
+            } catch (error) {
+                console.error('获取日志失败:', error);
+            }
+        }
+
+        // Display logs
+        function displayLogs(logs) {
+            logContent.innerHTML = logs.map(log => `
+                <div class="log-entry ${log.level}">
+                    <span class="log-time">[${log.timestamp}]</span>
+                    <span class="log-message">${log.message}</span>
+                </div>
+            `).join('');
+            logContent.scrollTop = logContent.scrollHeight;
+        }
+
+        // Fetch activities from API
+        async function fetchActivities() {
+            try {
+                const response = await fetch(`${API_BASE}/activities?limit=5`);
+                if (!response.ok) return;
+                const activities = await response.json();
+                displayActivities(activities);
+            } catch (error) {
+                console.error('获取活动失败:', error);
+            }
+        }
+
+        // Display activities
+        function displayActivities(activities) {
+            activityList.innerHTML = activities.map(activity => `
+                <div class="activity-item">
+                    <div class="activity-icon" style="color: var(--accent-green);">${activity.icon}</div>
+                    <div class="activity-content">
+                        <div class="activity-title">${activity.title}</div>
+                        <div class="activity-time">${activity.time}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Start status check interval
+        function startStatusCheck() {
+            statusCheckInterval = setInterval(async () => {
+                await fetchStats();
+                await fetchLogs();
+                await fetchActivities();
+                document.getElementById('lastUpdate').textContent = '刚刚更新';
+            }, 5000); // Check every 5 seconds
+        }
+
+        // Logging
+        function addLog(message, type = 'info') {
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            const time = new Date().toLocaleString('zh-CN');
+            entry.innerHTML = `
+                <span class="log-time">[${time}]</span>
+                <span class="log-message">${message}</span>
+            `;
+            logContent.appendChild(entry);
+            logContent.scrollTop = logContent.scrollHeight;
+        }
+
+        // Add activity
+        function addActivity(icon, title, time = '刚刚') {
+            const item = document.createElement('div');
+            item.className = 'activity-item';
+            item.innerHTML = `
+                <div class="activity-icon" style="color: var(--accent-green);">${icon}</div>
+                <div class="activity-content">
+                    <div class="activity-title">${title}</div>
+                    <div class="activity-time">${time}</div>
+                </div>
+            `;
+            activityList.insertBefore(item, activityList.firstChild);
+            if (activityList.children.length > 5) {
+                activityList.removeChild(activityList.lastChild);
+            }
+        }
+
+        // Update progress ring
+        function updateProgress(percent) {
+            const circumference = 2 * Math.PI * 52;
+            const offset = circumference - (percent / 100) * circumference;
+            progressRing.style.strokeDashoffset = offset;
+            progressValue.textContent = `${Math.round(percent)}%`;
+        }
+
+        // Crawler controls
+        async function startCrawl() {
+            if (isCrawling) return;
+            isCrawling = true;
+
+            document.getElementById('startCrawl').disabled = true;
+            document.getElementById('pauseCrawl').disabled = false;
+            document.getElementById('stopCrawl').disabled = false;
+            document.getElementById('crawlerStatus').className = 'status-indicator online';
+            document.getElementById('crawlerStatusText').textContent = '爬虫运行中';
+
+            addLog(`启动爬虫 - 阶段: ${currentPhase}`, 'info');
+            addActivity('▶', `启动爬虫 - 阶段: ${currentPhase}`);
+
+            try {
+                const response = await fetch(`${API_BASE}/start`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phase: currentPhase })
+                });
+
+                if (!response.ok) {
+                    throw new Error('启动爬虫失败');
+                }
+
+                const result = await response.json();
+                addLog(result.message, 'success');
+
+                // Start monitoring progress
+                monitorProgress(result.task_id);
+
+            } catch (error) {
+                addLog(`错误: ${error.message}`, 'error');
+                isCrawling = false;
+                document.getElementById('startCrawl').disabled = false;
+            }
+        }
+
+        // Monitor crawl progress
+        async function monitorProgress(taskId) {
+            const checkInterval = setInterval(async () => {
+                try {
+                    const response = await fetch(`${API_BASE}/status`);
+                    if (!response.ok) return;
+
+                    const status = await response.json();
+                    updateProgress(status.progress || 0);
+
+                    if (status.status === 'idle' || status.status === 'completed') {
+                        clearInterval(checkInterval);
+                        completeCrawl();
+                    }
+                } catch (error) {
+                    console.error('检查状态失败:', error);
+                }
+            }, 1000);
+        }
+
+        async function pauseCrawl() {
+            try {
+                const response = await fetch(`${API_BASE}/pause`, { method: 'POST' });
+                if (!response.ok) throw new Error('暂停失败');
+
+                addLog('爬虫已暂停', 'warning');
+                addActivity('⏸', '暂停爬虫');
+
+                document.getElementById('pauseCrawl').disabled = true;
+                document.getElementById('crawlerStatus').className = 'status-indicator warning';
+                document.getElementById('crawlerStatusText').textContent = '爬虫已暂停';
+            } catch (error) {
+                addLog(`暂停失败: ${error.message}`, 'error');
+            }
+        }
+
+        async function stopCrawl() {
+            try {
+                const response = await fetch(`${API_BASE}/stop`, { method: 'POST' });
+                if (!response.ok) throw new Error('停止失败');
+
+                addLog('爬虫已停止', 'error');
+                addActivity('⏹', '停止爬虫');
+
+                isCrawling = false;
+                updateProgress(0);
+                document.getElementById('startCrawl').disabled = false;
+                document.getElementById('pauseCrawl').disabled = true;
+                document.getElementById('stopCrawl').disabled = true;
+                document.getElementById('crawlerStatus').className = 'status-indicator offline';
+                document.getElementById('crawlerStatusText').textContent = '爬虫已停止';
+            } catch (error) {
+                addLog(`停止失败: ${error.message}`, 'error');
+            }
+        }
+
+        function completeCrawl() {
+            isCrawling = false;
+            document.getElementById('startCrawl').disabled = false;
+            document.getElementById('pauseCrawl').disabled = true;
+            document.getElementById('stopCrawl').disabled = true;
+            document.getElementById('crawlerStatus').className = 'status-indicator warning';
+            document.getElementById('crawlerStatusText').textContent = '爬虫待机';
+            addLog('爬虫任务完成！', 'success');
+            addActivity('✓', '爬虫成功完成');
+            fetchStats(); // Refresh stats
+        }
+
+        // Quick actions
+        async function buildRelationships() {
+            addLog('开始构建政策关联关系...', 'info');
+            addActivity('🔗', '构建政策关联关系');
+
+            try {
+                const response = await fetch(`${API_BASE}/relationships/build`, { method: 'POST' });
+                if (!response.ok) throw new Error('构建关联关系失败');
+                const result = await response.json();
+                addLog(result.message, 'success');
+            } catch (error) {
+                addLog(`错误: ${error.message}`, 'error');
+            }
+        }
+
+        async function validateData() {
+            addLog('开始数据质量验证...', 'info');
+            addActivity('✓', '验证数据质量');
+
+            try {
+                const response = await fetch(`${API_BASE}/data/validate`, { method: 'POST' });
+                if (!response.ok) throw new Error('验证数据失败');
+                const result = await response.json();
+                addLog(result.message, 'success');
+            } catch (error) {
+                addLog(`错误: ${error.message}`, 'error');
+            }
+        }
+
+        async function exportData() {
+            addLog('开始导出数据...', 'info');
+            addActivity('📥', '导出数据');
+
+            try {
+                const response = await fetch(`${API_BASE}/export`);
+                if (!response.ok) throw new Error('导出数据失败');
+                const data = await response.json();
+
+                // Download the JSON file
+                const blob = new Blob([JSON.stringify(data.data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `export_${new Date().toISOString().slice(0, 10)}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+
+                addLog(`数据导出完成！数量: ${data.count}`, 'success');
+            } catch (error) {
+                addLog(`错误: ${error.message}`, 'error');
+            }
+        }
+
+        async function clearLogs() {
+            try {
+                await fetch(`${API_BASE}/logs/clear`, { method: 'POST' });
+                logContent.innerHTML = '';
+                addLog('日志已清除', 'info');
+            } catch (error) {
+                addLog(`清除日志失败: ${error.message}`, 'error');
+            }
+        }
+    </script>
+</body>
+</html>

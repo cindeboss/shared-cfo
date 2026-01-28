@@ -75,9 +75,10 @@ async def health_check():
 
 
 # API路由
-from .api.routes import health
+from .api.routes import health, crawler
 
 app.include_router(health.router, prefix="/api/v1", tags="系统")
+app.include_router(crawler.router, prefix="/api/v1/crawler", tags="爬虫")
 
 
 # 根路径
