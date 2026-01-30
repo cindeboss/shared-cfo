@@ -9,12 +9,12 @@ from datetime import datetime
 from threading import Thread
 import time
 
-from .database_v2 import MongoDBConnectorV2
-from .chinatax_crawler_v4 import ChinaTaxCrawler
-from .crawler_12366_v2 import Crawler12366
+from .database import MongoDBConnector
+from .chinatax_crawler import ChinaTaxCrawler
+from .crawler_12366 import Crawler12366
 from .relationship_builder import PolicyRelationshipBuilder
 from .quality_validator import DataQualityValidator
-from .data_models_v2 import CrawlTask
+from .data_models import CrawlTask
 import uuid
 
 
@@ -31,8 +31,8 @@ class CrawlerOrchestrator:
     - Phase 3: 持续增量更新
     """
 
-    def __init__(self, db_connector: MongoDBConnectorV2 = None):
-        self.db = db_connector or MongoDBConnectorV2()
+    def __init__(self, db_connector: MongoDBConnector = None):
+        self.db = db_connector or MongoDBConnector()
         self.current_task_id = None
         self.is_running = False
 
@@ -356,7 +356,7 @@ class CrawlerOrchestrator:
 
 
 # 便捷函数
-def run_crawl_phase(phase: str = 'test', db_connector: MongoDBConnectorV2 = None) -> Dict[str, Any]:
+def run_crawl_phase(phase: str = 'test', db_connector: MongoDBConnector = None) -> Dict[str, Any]:
     """
     运行指定的爬取阶段
 
@@ -384,7 +384,7 @@ def run_crawl_phase(phase: str = 'test', db_connector: MongoDBConnectorV2 = None
         pass
 
 
-def get_progress(db_connector: MongoDBConnectorV2 = None) -> Dict[str, Any]:
+def get_progress(db_connector: MongoDBConnector = None) -> Dict[str, Any]:
     """获取爬取进度"""
     orchestrator = CrawlerOrchestrator(db_connector)
     return orchestrator.get_progress_report()

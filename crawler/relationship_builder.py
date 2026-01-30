@@ -9,7 +9,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 import logging
 
-from .database_v2 import MongoDBConnectorV2
+from .database import MongoDBConnector
 
 
 logger = logging.getLogger("RelationshipBuilder")
@@ -26,7 +26,7 @@ class PolicyRelationshipBuilder:
     4. 建立相关政策关联（同一主题）
     """
 
-    def __init__(self, db: MongoDBConnectorV2):
+    def __init__(self, db: MongoDBConnector):
         self.db = db
         self.logger = logging.getLogger("RelationshipBuilder")
 
@@ -393,7 +393,7 @@ class PolicyRelationshipBuilder:
 
 
 # 便捷函数
-def build_all_relationships(db: MongoDBConnectorV2, batch_size: int = 100) -> Dict[str, Any]:
+def build_all_relationships(db: MongoDBConnector, batch_size: int = 100) -> Dict[str, Any]:
     """构建所有政策的关联关系"""
     builder = PolicyRelationshipBuilder(db)
     return builder.build_all_relationships(batch_size)

@@ -10,7 +10,7 @@ from datetime import datetime
 from difflib import SequenceMatcher
 import logging
 
-from .database_v2 import MongoDBConnectorV2
+from .database import MongoDBConnector
 
 
 logger = logging.getLogger("QualityValidator")
@@ -29,7 +29,7 @@ class DataQualityValidator:
     6. 去重
     """
 
-    def __init__(self, db: MongoDBConnectorV2):
+    def __init__(self, db: MongoDBConnector):
         self.db = db
         self.logger = logging.getLogger("QualityValidator")
 
@@ -378,13 +378,13 @@ class DataQualityValidator:
 
 
 # 便捷函数
-def validate_data_quality(db: MongoDBConnectorV2) -> Dict[str, Any]:
+def validate_data_quality(db: MongoDBConnector) -> Dict[str, Any]:
     """验证数据质量"""
     validator = DataQualityValidator(db)
     return validator.validate_all()
 
 
-def deduplicate_data(db: MongoDBConnectorV2) -> Dict[str, Any]:
+def deduplicate_data(db: MongoDBConnector) -> Dict[str, Any]:
     """去重处理"""
     validator = DataQualityValidator(db)
     return validator.deduplicate_policies()

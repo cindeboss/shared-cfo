@@ -24,7 +24,7 @@ import logging
 
 import requests
 from bs4 import BeautifulSoup
-from .data_models_v2 import DocumentType, TaxType, Region, ValidityStatus
+from .data_models import DocumentType, TaxType, Region, ValidityStatus
 
 
 logger = logging.getLogger("BaseCrawler")
@@ -572,7 +572,7 @@ class BaseCrawler(ABC):
             return False
 
         # 转换为PolicyDocument模型
-        from .data_models_v2 import PolicyDocument, DocumentLevel, TaxCategory, TaxType, DocumentType, Region, ValidityStatus
+        from .data_models import PolicyDocument, DocumentLevel, TaxCategory, TaxType, DocumentType, Region, ValidityStatus
 
         try:
             policy = PolicyDocument(

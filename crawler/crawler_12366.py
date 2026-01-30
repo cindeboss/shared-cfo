@@ -1,332 +1,341 @@
-#!/usr/bin/env python3
 """
-12366纳税服务平台爬虫
-更容易爬取，数据质量高
+12366纳税服务平台爬虫 v2.0
+爬取热点问答和办税指南
+根据《共享CFO - 爬虫模块需求文档 v3.0》设计
+
+合规性说明：
+- 只爬取公开的政府政策信息
+- 遵守robots.txt协议
+- 限制访问频率，避免对服务器造成负担
 """
-import logging
-import random
-import time
+
+import re
+import json
+from typing import Optional, List, Dict, Any
 from datetime import datetime
-from urllib.parse import urljoin, quote_plus
+from urllib.parse import urljoin, urlencode
+import logging
 
-from pymongo import MongoClient
-import requests
 from bs4 import BeautifulSoup
+from .base_crawler import BaseCrawler
 
 
-class TaxCrawler12366:
-    """12366纳税服务平台爬虫"""
+logger = logging.getLogger("Crawler12366")
 
-    BASE_URL = "https://12366.chinatax.gov.cn"
 
-    def __init__(self):
-        self.mongo_uri = f'mongodb://cfo_user:{quote_plus("840307@whY")}@localhost:27017/shared_cfo?authSource=admin'
+class Crawler12366(BaseCrawler):
+    """
+    12366纳税服务平台爬虫
+    网址: https://12366.chinatax.gov.cn/
 
-        # 配置日志
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler('/opt/shared-cfo/logs/crawler_12366.log', encoding='utf-8'),
-                logging.StreamHandler()
-            ]
-        )
-        self.logger = logging.getLogger(__name__)
+    主要栏目：
+    - 热点问题
+    - 办税指南
+    - 政策问答
+    """
 
-        # 连接MongoDB
-        self.logger.info('连接MongoDB...')
-        self.client = MongoClient(self.mongo_uri, serverSelectionTimeoutMS=10000)
-        self.db = self.client['shared_cfo']
-        self.collection = self.db['policies']
-        self.client.admin.command('ping')
-        self.logger.info('MongoDB连接成功')
+    def __init__(self, db_connector=None):
+        super().__init__(db_connector)
+        self.base_url = "https://12366.chinatax.gov.cn"
 
-        # 配置session
-        self.session = requests.Session()
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'zh-CN,zh;q=0.9',
-        })
+        # 问答类型映射
+        self.qa_type_mapping = {
+            '增值税': '增值税',
+            '企业所得税': '企业所得税',
+            '个人所得税': '个人所得税',
+            '房产税': '房产税',
+            '印花税': '印花税',
+            '征管': '征管程序',
+        }
 
-    def delay(self, min_sec=2, max_sec=5):
-        """随机延迟"""
-        time.sleep(random.uniform(min_sec, max_sec))
+    def get_source_name(self) -> str:
+        return "12366纳税服务平台"
 
-    def crawl_hot_questions(self, limit=30):
-        """爬取热点问题"""
-        self.logger.info('爬取12366热点问题...')
+    def get_base_url(self) -> str:
+        return self.base_url
 
-        # 尝试多个可能的热点问题URL
-        hot_urls = [
-            f'{self.BASE_URL}/portal/search/kwd?keyword=增值税',
-            f'{self.BASE_URL}/',
-        ]
+    def extract_content_from_page(self, soup: BeautifulSoup) -> Dict[str, str]:
+        """从解析的页面中提取内容"""
+        result = {'title': '', 'content': '', 'metadata': {}, 'qa_pairs': []}
 
-        all_policies = []
-
-        for url in hot_urls:
-            self.logger.info(f'访问: {url}')
-            self.delay()
-
-            try:
-                response = self.session.get(url, timeout=30)
-                response.raise_for_status()
-                soup = BeautifulSoup(response.text, 'html.parser')
-
-                # 查找问题链接
-                for link in soup.find_all('a', href=True):
-                    href = link.get('href', '').strip()
-                    title = link.get_text(strip=True)
-
-                    if not href or not title or len(title) < 10:
-                        continue
-
-                    # 过滤问答相关链接
-                    if any(kw in title for kw in ['增值税', '所得税', '个税', '企业', '税收', '税率', '减免']):
-                        if not href.startswith('http'):
-                            full_url = urljoin(self.BASE_URL, href)
-                        else:
-                            full_url = href
-
-                        # 去重
-                        if not any(p['url'] == full_url for p in all_policies):
-                            all_policies.append({
-                                'title': title[:150],
-                                'url': full_url
-                            })
-
-                            if len(all_policies) >= limit:
-                                break
-
-                if len(all_policies) >= limit:
-                    break
-
-            except Exception as e:
-                self.logger.warning(f'访问 {url} 失败: {e}')
-
-        self.logger.info(f'找到 {len(all_policies)} 条问答')
-
-        # 爬取详情
-        success = duplicate = error = 0
-        for idx, policy in enumerate(all_policies[:limit], 1):
-            self.logger.info(f'[{idx}/{min(limit, len(all_policies))}] {policy["title"][:60]}')
-            result = self.crawl_detail(policy['url'], policy['title'])
-            if result == 'success':
-                success += 1
-            elif result == 'duplicate':
-                duplicate += 1
-            else:
-                error += 1
-
-        self.logger.info(f'完成 - 成功:{success}, 重复:{duplicate}, 失败:{error}')
-        return success
-
-    def crawl_detail(self, url, title=None):
-        """爬取详情页"""
         try:
-            self.delay()
-            response = self.session.get(url, timeout=30)
-            response.raise_for_status()
-            soup = BeautifulSoup(response.text, 'html.parser')
-
             # 提取标题
-            if not title:
-                title_elem = soup.find('h1') or soup.find('h2') or soup.find('title')
-                title = title_elem.get_text(strip=True) if title_elem else url.split('/')[-1]
+            title_selectors = [
+                'h1.title',
+                'h1',
+                '.qa-title',
+                '.question-title',
+            ]
 
-            # 提取内容
-            content_div = (
-                soup.find('div', class_='content') or
-                soup.find('div', class_='answer') or
-                soup.find('div', class_='detail') or
-                soup.find('div', id='content') or
-                soup.find('article')
-            )
-
-            if content_div:
-                content = content_div.get_text(separator='\n', strip=True)
-            else:
-                body = soup.find('body')
-                content = body.get_text(separator='\n', strip=True) if body else ''
-
-            # 清理内容
-            lines = [line.strip() for line in content.split('\n') if line.strip() and len(line) > 3]
-            content = '\n'.join(lines)
-
-            # 生成ID
-            policy_id = url.split('/')[-1].replace('.shtml', '').replace('.htm', '').replace('?', '')
-            if not policy_id:
-                policy_id = f"12366_{int(time.time())}"
-
-            # 检测税种
-            tax_types = []
-            if '增值税' in title or '增值税' in content:
-                tax_types.append('增值税')
-            if '所得税' in title or '企业所得税' in title:
-                tax_types.append('企业所得税')
-            if '个人所得税' in title or '个税' in title:
-                tax_types.append('个人所得税')
-
-            # 构造文档
-            doc = {
-                'policy_id': policy_id,
-                'title': title,
-                'source': '12366纳税服务平台',
-                'url': url,
-                'content': content[:50000],
-                'crawled_at': datetime.now(),
-                'region': '全国',
-                'document_type': '问答',
-                'tax_type': tax_types if tax_types else ['其他'],
-                'qa_pairs': [{'question': title, 'answer': content[:1000]}]
-            }
-
-            self.collection.insert_one(doc)
-            self.logger.info(f'✓ 保存成功')
-            return 'success'
-
-        except Exception as e:
-            if 'duplicate' in str(e).lower() or 'E11000' in str(e):
-                return 'duplicate'
-            self.logger.error(f'✗ 失败: {e}')
-            return 'error'
-
-    def crawl_local_tax_bureaus(self, limit=20):
-        """爬取地方税务局"""
-        # 北京税务局热点问题
-        beijing_urls = [
-            'http://beijing.chinatax.gov.cn/',
-            'http://beijing.chinatax.gov.cn/bjswj/sszc/zcjd/',
-        ]
-
-        all_policies = []
-
-        for url in beijing_urls:
-            self.logger.info(f'访问北京税务: {url}')
-            self.delay()
-
-            try:
-                response = self.session.get(url, timeout=30)
-                response.raise_for_status()
-                soup = BeautifulSoup(response.text, 'html.parser')
-
-                for link in soup.find_all('a', href=True):
-                    href = link.get('href', '')
-                    title = link.get_text(strip=True)
-
-                    if not href or not title or len(title) < 8:
-                        continue
-
-                    if any(kw in title for kw in ['税', '政策', '公告', '通知', '解读']):
-                        if not href.startswith('http'):
-                            full_url = urljoin(url, href)
-                        else:
-                            full_url = href
-
-                        if not any(p['url'] == full_url for p in all_policies):
-                            all_policies.append({
-                                'title': title[:100],
-                                'url': full_url,
-                                'region': '北京'
-                            })
-
-                            if len(all_policies) >= limit:
-                                break
-
-                if len(all_policies) >= limit:
+            for selector in title_selectors:
+                title_elem = soup.select_one(selector)
+                if title_elem:
+                    result['title'] = title_elem.get_text(strip=True)
                     break
 
-            except Exception as e:
-                self.logger.warning(f'访问北京税务失败: {e}')
+            # 问答页特殊处理
+            question_elem = soup.select_one('.question, .qa-question, .ask')
+            answer_elem = soup.select_one('.answer, .qa-answer, .reply')
 
-        self.logger.info(f'找到 {len(all_policies)} 条地方政策')
+            if question_elem and answer_elem:
+                question = question_elem.get_text(separator='\n', strip=True)
+                answer = answer_elem.get_text(separator='\n', strip=True)
 
-        # 爬取详情
-        success = 0
-        for idx, policy in enumerate(all_policies[:limit], 1):
-            self.logger.info(f'[{idx}/{min(limit, len(all_policies))}] {policy["title"][:50]}')
-            result = self.crawl_detail_local(policy['url'], policy['title'], policy.get('region', '全国'))
-            if result == 'success':
-                success += 1
+                result['qa_pairs'] = [{
+                    'question': question,
+                    'answer': answer,
+                    'question_type': self._determine_question_type(question)
+                }]
 
-        return success
+                # 使用问题作为标题
+                if not result['title']:
+                    result['title'] = question[:50] + ('...' if len(question) > 50 else '')
 
-    def crawl_detail_local(self, url, title=None, region='全国'):
-        """爬取地方政策详情"""
-        try:
-            self.delay()
-            response = self.session.get(url, timeout=30)
-            response.raise_for_status()
-            soup = BeautifulSoup(response.text, 'html.parser')
+                # 使用答案作为内容
+                result['content'] = answer
 
-            if not title:
-                title_elem = soup.find('h1') or soup.find('title')
-                title = title_elem.get_text(strip=True) if title_elem else url.split('/')[-1]
+            else:
+                # 常规内容提取
+                content_selectors = [
+                    'div.content',
+                    'div[class*="content"]',
+                    '.answer-content',
+                ]
 
-            content_div = soup.find('div', class_='content') or soup.find('div', class_='article-content') or soup.find('body')
-            content = content_div.get_text(separator='\n', strip=True) if content_div else ''
+                for selector in content_selectors:
+                    content_elem = soup.select_one(selector)
+                    if content_elem:
+                        result['content'] = content_elem.get_text(separator='\n', strip=True)
+                        break
 
-            policy_id = url.split('/')[-1].replace('.shtml', '').replace('.htm', '')
+            # 提取日期
+            date_elem = soup.select_one('.date, .time, .publish-time, [class*="date"]')
+            if date_elem:
+                date_text = date_elem.get_text(strip=True)
+                result['metadata']['publish_date'] = self._parse_date(date_text)
 
-            doc = {
-                'policy_id': policy_id,
-                'title': title,
-                'source': f'{region}税务局',
-                'url': url,
-                'content': content[:50000],
-                'crawled_at': datetime.now(),
-                'region': region,
-                'document_type': '政策',
-                'tax_type': ['其他'],
-            }
-
-            self.collection.insert_one(doc)
-            self.logger.info(f'✓ 保存成功')
-            return 'success'
+            # 提取税种标签
+            tags = soup.select('.tag, .label, [class*="tax"]')
+            if tags:
+                result['metadata']['tags'] = [tag.get_text(strip=True) for tag in tags]
 
         except Exception as e:
-            if 'duplicate' in str(e).lower():
-                return 'duplicate'
-            return 'error'
+            self.logger.error(f"Error extracting content: {e}")
 
-    def crawl(self, limit=30):
-        """主爬取方法"""
-        self.logger.info('=' * 50)
-        self.logger.info('12366纳税服务平台爬虫启动')
-        self.logger.info('=' * 50)
+        return result
 
-        # 爬取12366
-        count1 = self.crawl_hot_questions(limit)
+    def _determine_question_type(self, question: str) -> str:
+        """判断问题类型"""
+        if '增值税' in question:
+            return '增值税'
+        elif '企业所得税' in question or '企税' in question:
+            return '企业所得税'
+        elif '个人所得税' in question or '个税' in question:
+            return '个人所得税'
+        elif '申报' in question or '纳税' in question:
+            return '征管程序'
+        else:
+            return '其他'
 
-        # 爬取地方税务局
-        count2 = self.crawl_local_tax_bureaus(limit)
+    def _parse_date(self, date_text: str) -> Optional[datetime]:
+        """解析日期文本"""
+        patterns = [
+            r'(\d{4})[年\-](\d{1,2})[月\-](\d{1,2})',
+            r'(\d{4})-(\d{1,2})-(\d{1,2})',
+        ]
 
-        total = count1 + count2
-        self.logger.info(f'数据库总数: {self.collection.count_documents({})}')
-        self.logger.info(f'本次爬取: {total} 条')
-        self.logger.info('=' * 50)
+        for pattern in patterns:
+            match = re.search(pattern, date_text)
+            if match:
+                try:
+                    year, month, day = match.groups()[:3]
+                    return datetime(int(year), int(month), int(day))
+                except (ValueError, IndexError):
+                    pass
 
-        return total
+        return None
 
-    def close(self):
-        """关闭连接"""
-        if self.client:
-            self.client.close()
+    def crawl_list_page(self, url: str) -> List[str]:
+        """爬取列表页"""
+        detail_urls = []
+
+        try:
+            response = self._make_request(url)
+            if not response:
+                return detail_urls
+
+            soup = self._parse_html(response.text)
+
+            # 查找问题/文章链接
+            for link in soup.find_all('a', href=True):
+                href = link['href']
+                text = link.get_text()
+
+                # 检查是否为问答链接
+                if any(kw in text for kw in ['问', '答', '热点', '指南']) and not href.startswith('javascript'):
+                    full_url = urljoin(self.base_url, href)
+                    if full_url not in detail_urls:
+                        detail_urls.append(full_url)
+
+            self.logger.info(f"Found {len(detail_urls)} URLs from {url}")
+
+        except Exception as e:
+            self.logger.error(f"Error crawling list page {url}: {e}")
+
+        return detail_urls
+
+    def process_policy(self, url: str, html: str, extra_data: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
+        """处理问答页面"""
+        soup = self._parse_html(html)
+        page_data = self.extract_content_from_page(soup)
+
+        title = page_data.get('title', '')
+        content = page_data.get('content', '')
+        qa_pairs = page_data.get('qa_pairs', [])
+
+        if not title or not content:
+            return None
+
+        # 问答类文档固定为L4层级
+        source = self.get_source_name()
+        policy_id = self._generate_policy_id(source, url)
+
+        # 判断税种
+        category, tax_types = self.extractor.determine_tax_category_and_type(title, content)
+
+        policy_data = {
+            'policy_id': policy_id,
+            'title': title,
+            'source': source,
+            'url': url,
+            'document_level': 'L4',
+            'document_type': '热点问答',
+            'tax_category': category,
+            'tax_type': tax_types,
+            'region': extra_data.get('region', '全国') if extra_data else '全国',
+            'content': content,
+            'qa_pairs': qa_pairs,
+            'publish_date': page_data.get('metadata', {}).get('publish_date'),
+            'crawled_at': datetime.now(),
+            'extra': {
+                'qa_type': self._determine_question_type(title),
+                'tags': page_data.get('metadata', {}).get('tags', [])
+            }
+        }
+
+        # 计算质量分数
+        policy_data['quality_score'] = self.extractor.calculate_quality_score(policy_data)
+        policy_data['quality_level'] = self.extractor.determine_quality_level(policy_data['quality_score'])
+
+        return policy_data
+
+    def crawl_hot_questions(self, keyword: str = '增值税', max_results: int = 50) -> Dict[str, int]:
+        """
+        爬取热点问题
+
+        Args:
+            keyword: 搜索关键词
+            max_results: 最大结果数
+        """
+        self.logger.info(f"Crawling hot questions for: {keyword}")
+
+        # 构建搜索URL
+        search_url = f"{self.base_url}/portal/search/kwd?{urlencode({'kw': keyword})}"
+
+        detail_urls = []
+        for _ in range(5):  # 限制页数
+            urls = self.crawl_list_page(search_url)
+            if not urls:
+                break
+            detail_urls.extend(urls)
+            if len(detail_urls) >= max_results:
+                break
+
+        detail_urls = detail_urls[:max_results]
+        stats = {'total': len(detail_urls), 'success': 0, 'failed': 0, 'duplicate': 0}
+
+        for url in detail_urls:
+            try:
+                policy_data = self.crawl_detail_page(url)
+                if policy_data and self.save_policy(policy_data):
+                    stats['success'] += 1
+                elif policy_data:
+                    stats['duplicate'] += 1
+                else:
+                    stats['failed'] += 1
+            except Exception as e:
+                self.logger.error(f"Failed to crawl {url}: {e}")
+                stats['failed'] += 1
+
+        self.logger.info(f"Hot questions for {keyword} completed: {stats}")
+        return stats
+
+    def crawl_all_tax_types(self, max_per_type: int = 30) -> Dict[str, Any]:
+        """爬取所有主要税种的热点问题"""
+        keywords = ['增值税', '企业所得税', '个人所得税', '印花税']
+
+        total_stats = {
+            'total': 0,
+            'success': 0,
+            'failed': 0,
+            'duplicate': 0,
+            'by_tax_type': {}
+        }
+
+        for keyword in keywords:
+            stats = self.crawl_hot_questions(keyword, max_per_type)
+
+            total_stats['total'] += stats['total']
+            total_stats['success'] += stats['success']
+            total_stats['failed'] += stats['failed']
+            total_stats['duplicate'] += stats['duplicate']
+            total_stats['by_tax_type'][keyword] = stats
+
+        return total_stats
 
 
-if __name__ == '__main__':
-    crawler = None
+def crawl_12366(db_connector, keywords: List[str] = None, max_per_type: int = 30) -> Dict[str, Any]:
+    """便捷函数：爬取12366平台"""
+    crawler = Crawler12366(db_connector)
+
     try:
-        crawler = TaxCrawler12366()
-        crawler.crawl(limit=30)
-    except KeyboardInterrupt:
-        print('\n用户中断')
-    except Exception as e:
-        print(f'错误: {e}')
-        import traceback
-        traceback.print_exc()
+        if keywords is None:
+            keywords = ['增值税', '企业所得税', '个人所得税']
+
+        total_stats = {
+            'total': 0,
+            'success': 0,
+            'failed': 0,
+            'duplicate': 0,
+            'by_tax_type': {}
+        }
+
+        for keyword in keywords:
+            stats = crawler.crawl_hot_questions(keyword, max_per_type)
+            total_stats['total'] += stats['total']
+            total_stats['success'] += stats['success']
+            total_stats['failed'] += stats['failed']
+            total_stats['duplicate'] += stats['duplicate']
+            total_stats['by_tax_type'][keyword] = stats
+
+        return total_stats
     finally:
-        if crawler:
-            crawler.close()
-        print('完成!')
+        crawler.close()
+
+
+if __name__ == "__main__":
+    # 测试代码
+    logging.basicConfig(level=logging.INFO)
+
+    from .database import MongoDBConnector
+
+    db = MongoDBConnector()
+    crawler = Crawler12366(db)
+
+    try:
+        # 测试爬取增值税热点问题
+        stats = crawler.crawl_hot_questions('增值税', max_results=5)
+        print(f"Crawl completed: {stats}")
+    finally:
+        crawler.close()
+        db.close()

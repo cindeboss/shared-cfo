@@ -1,214 +1,360 @@
 """
-国家税务总局政策法规库爬虫
+国家税务总局政策法规库爬虫 v4.0
+支持完整的政策层级体系和关联关系
+根据《共享CFO - 爬虫模块需求文档 v3.0》设计
+
+合规性说明：
+- 只爬取公开的政府政策信息
+- 遵守robots.txt协议
+- 限制访问频率，避免对服务器造成负担
+- 添加明确的User-Agent标识
 """
 
 import re
-import json
-from typing import List, Dict, Any, Optional
+from typing import Optional, List, Dict, Any
 from datetime import datetime
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
+import logging
 
-from .base import BaseCrawler
-from .data_models import PolicyDocument, DocumentType, Region, TaxType
+from bs4 import BeautifulSoup
+from .base_crawler import BaseCrawler
+
+
+logger = logging.getLogger("ChinaTaxCrawler")
 
 
 class ChinaTaxCrawler(BaseCrawler):
-    """国家税务总局政策法规库爬虫"""
+    """
+    国家税务总局政策法规库爬虫
+    网址: https://fgk.chinatax.gov.cn/
 
-    def __init__(self):
-        super().__init__(
-            name="ChinaTax",
-            base_url="https://fgk.chinatax.gov.cn"
-        )
+    栏目结构：
+    - c100001: 法律 (L1)
+    - c100002: 行政法规 (L1)
+    - c100003: 部门规章 (L2)
+    - c100004: 财税文件 (L2)
+    - c100005: 规范性文件 (L3)
+    - c100015: 政策解读 (L4)
+    """
 
-    def get_policy_list(self, channel: str = None, **kwargs) -> List[Dict[str, Any]]:
-        """获取政策列表
+    def __init__(self, db_connector=None):
+        super().__init__(db_connector)
+        self.base_url = "https://fgk.chinatax.gov.cn"
 
-        Args:
-            channel: 栏目，如 'latest', 'law', 'interpretation' 等
-            **kwargs: 额外参数
-                - start_year: 起始年份（默认2022）
-                - end_year: 结束年份（默认2025）
-                - limit: 每次获取数量（默认20）
+        # 栏目映射到层级和类型
+        self.category_config = {
+            'c100001': {'level': 'L1', 'type': '法律', 'tax_category': '实体税'},
+            'c100002': {'level': 'L1', 'type': '行政法规', 'tax_category': '实体税'},
+            'c100003': {'level': 'L2', 'type': '部门规章', 'tax_category': '实体税'},
+            'c100004': {'level': 'L2', 'type': '财税文件', 'tax_category': '实体税'},
+            'c100005': {'level': 'L3', 'type': '规范性文件', 'tax_category': '实体税'},
+            'c100015': {'level': 'L4', 'type': '官方解读', 'tax_category': '实体税'},
+        }
+
+    def get_source_name(self) -> str:
+        return "国家税务总局"
+
+    def get_base_url(self) -> str:
+        return self.base_url
+
+    def get_category_list_url(self, category_id: str, page: int = 1) -> str:
+        """获取栏目列表页URL"""
+        # 法规库的列表页URL格式
+        return f"{self.base_url}/zcfgk/{category_id}/listflfg.html"
+
+    def get_detail_url(self, doc_id: str) -> str:
+        """获取详情页URL"""
+        return f"{self.base_url}/zcfgk/detail.html?id={doc_id}"
+
+    def crawl_list_page(self, url: str, max_pages: int = 10) -> List[str]:
         """
-        # 使用搜索API获取政策列表
-        policies = []
+        爬取列表页，返回详情页URL列表
+        """
+        detail_urls = []
 
-        # 按年份分批获取
-        start_year = kwargs.get('start_year', 2022)
-        end_year = kwargs.get('end_year', 2025)
-        limit = kwargs.get('limit', 20)
+        try:
+            # 爬取多页
+            for page in range(1, max_pages + 1):
+                list_url = url.replace('listflfg.html', f'listflfg_{page}.html') if page > 1 else url
 
-        for year in range(start_year, end_year + 1):
-            self.logger.info(f"Fetching policies for year: {year}")
-
-            # 分页获取
-            start = 0
-            while True:
-                search_params = {
-                    'start': start,
-                    'limit': limit,
-                    'publishDate': f'{year}-01-01',  # 搜索该年1月1日之后
-                    'searchType': 1,  # 模糊搜索
-                }
-
-                # 构建搜索URL
-                search_url = f"{self.base_url}/zcfgk/xsearch/list.do"
-
-                response = self._request(search_url, method='POST', data=search_params)
-
+                response = self._make_request(list_url)
                 if not response:
                     break
 
-                try:
-                    data = response.json()
-                    items = data.get('data', [])
+                soup = self._parse_html(response.text)
 
-                    if not items:
-                        break
+                # 查找政策链接
+                # 法规库通常使用 <a> 标签，href 可能是 detail.html?id=xxx
+                for link in soup.find_all('a', href=True):
+                    href = link['href']
 
-                    for item in items:
-                        # 解析政策基本信息
-                        title = item.get('title', '')
-                        url = item.get('url', '')
+                    # 检查是否为详情页链接
+                    if 'detail.html' in href or 'detail?' in href:
+                        full_url = urljoin(self.base_url, href)
 
-                        if not title or not url:
-                            continue
+                        # 提取文档ID
+                        doc_id = self._extract_doc_id(href)
+                        if doc_id:
+                            detail_url = self.get_detail_url(doc_id)
+                            if detail_url not in detail_urls:
+                                detail_urls.append(detail_url)
 
-                        # 构建完整URL
-                        if not url.startswith('http'):
-                            url = urljoin(self.base_url, url)
+                self.logger.info(f"Found {len(detail_urls)} URLs from page {page}")
 
-                        publish_date = self._extract_date(item.get('publishDate', ''))
-
-                        policies.append({
-                            'title': title,
-                            'url': url,
-                            'publish_date': publish_date,
-                            'document_type': self._infer_document_type(title),
-                        })
-
-                    # 检查是否还有更多数据
-                    if len(items) < limit:
-                        break
-
-                    start += limit
-
-                except json.JSONDecodeError:
-                    self.logger.error(f"Failed to parse JSON response from {search_url}")
+                # 检查是否有下一页
+                next_page = soup.find('a', text=re.compile(r'下一页|下页'))
+                if not next_page:
                     break
 
-        return policies
+        except Exception as e:
+            self.logger.error(f"Error crawling list page {url}: {e}")
 
-    def parse_policy_detail(self, url: str, list_data: Dict[str, Any] = None) -> Optional[PolicyDocument]:
-        """解析政策详情页"""
-        response = self._request(url)
-        if not response:
-            return None
+        return detail_urls
 
-        soup = self._parse_html(response.text)
-
-        # 提取标题
-        title = list_data.get('title') if list_data else ''
-        if not title:
-            title_elem = soup.find('h1') or soup.find('h2') or soup.find('title')
-            if title_elem:
-                title = self._clean_text(title_elem.get_text())
-
-        # 提取正文内容
-        content_elem = (
-            soup.find('div', class_='content') or
-            soup.find('div', class_='article-content') or
-            soup.find('div', id='content') or
-            soup.find('div', class_='text')
-        )
-
-        if content_elem:
-            content = self._clean_text(content_elem.get_text(separator='\n', strip=True))
-        else:
-            # 尝试获取整个body
-            body = soup.find('body')
-            content = self._clean_text(body.get_text(separator='\n', strip=True)) if body else ''
-
-        # 提取元数据
-        publish_date = list_data.get('publish_date') if list_data else None
-        if not publish_date:
-            # 尝试从页面中提取日期
-            date_text = soup.find('span', class_='date') or soup.find('span', class_='publish-date')
-            if date_text:
-                publish_date = self._extract_date(date_text.get_text())
-
-        # 提取文号
-        document_number = None
-        doc_num_pattern = r'([^、。\s]{1,10}〔\d{4}\]\d{1,10}号|[^、。\s]{1,10}\[\d{4}\]\d{1,10}号|[^、。\s]{1,10}发\d{4}\d{1,10}号)'
-        match = re.search(doc_num_pattern, title)
+    def _extract_doc_id(self, href: str) -> Optional[str]:
+        """从链接中提取文档ID"""
+        # 匹配 detail.html?id=xxx 或 detail?id=xxx
+        match = re.search(r'id=([a-zA-Z0-9_-]+)', href)
         if match:
-            document_number = match.group(1)
+            return match.group(1)
 
-        # 提取发布单位
-        publish_department = "国家税务总局"
-        dept_elem = soup.find('span', class_='source') or soup.find('span', class_='department')
-        if dept_elem:
-            publish_department = self._clean_text(dept_elem.get_text())
+        # 匹配路径中的ID，如 /zcfgk/2023/12345.html
+        match = re.search(r'/(\d{6,})\.html', href)
+        if match:
+            return match.group(1)
 
-        # 生成唯一ID
-        policy_id = url.split('/')[-1].replace('.shtml', '') if url.endswith('.shtml') else url
+        return None
 
-        # 判断税种
-        tax_types = self._classify_tax_type(title, content)
+    def extract_content_from_page(self, soup: BeautifulSoup) -> Dict[str, str]:
+        """
+        从解析的页面中提取内容
+        返回: {title, content, metadata}
+        """
+        result = {'title': '', 'content': '', 'metadata': {}}
 
-        # 构建文档对象
-        doc = PolicyDocument(
-            policy_id=policy_id,
-            title=title,
-            source="国家税务总局",
-            url=url,
-            tax_type=tax_types,
-            region=Region.NATIONAL,
-            document_type=list_data.get('document_type', DocumentType.OTHER) if list_data else DocumentType.OTHER,
-            content=content,
-            publish_date=publish_date,
-            document_number=document_number,
-            publish_department=publish_department,
-        )
+        try:
+            # 提取标题 - 通常在 <h1> 或特定的标题容器中
+            title_selectors = [
+                'h1.title',
+                'h1',
+                '.title',
+                '#title',
+                'div[class*="title"] h1',
+            ]
 
-        return doc
+            for selector in title_selectors:
+                title_elem = soup.select_one(selector)
+                if title_elem:
+                    result['title'] = title_elem.get_text(strip=True)
+                    break
 
-    def _infer_document_type(self, title: str) -> DocumentType:
-        """根据标题推断文档类型"""
-        title_lower = title.lower()
+            # 提取发文字号
+            doc_number = self._extract_document_number_from_soup(soup)
+            if doc_number:
+                result['metadata']['document_number'] = doc_number
 
-        if '法律' in title or '法' in title:
-            return DocumentType.LAW
-        elif '条例' in title or '行政法规' in title:
-            return DocumentType.REGULATION
-        elif '规章' in title or '办法' in title:
-            return DocumentType.RULE
-        elif '公告' in title:
-            return DocumentType.ANNOUNCEMENT
-        elif '通知' in title:
-            return DocumentType.NOTICE
-        elif '解读' in title:
-            return DocumentType.INTERPRETATION
-        elif '财税' in title or '税' in title:
-            return DocumentType.FISCAL_DOC
-        else:
-            return DocumentType.OTHER
+            # 提取发布日期
+            publish_date = self._extract_publish_date_from_soup(soup)
+            if publish_date:
+                result['metadata']['publish_date'] = publish_date
 
-    def _classify_tax_type(self, title: str, content: str) -> List[TaxType]:
-        """分类税种"""
-        text = f"{title} {content}".lower()
-        tax_types = []
+            # 提取正文内容
+            content_selectors = [
+                'div.content',
+                'div[class*="content"]',
+                'div[id*="content"]',
+                'article',
+                '.detail-content',
+                '#content',
+            ]
 
-        if '增值税' in text or 'vat' in text or '进项' in text or '销项' in text:
-            tax_types.append(TaxType.VAT)
-        if any(kw in text for kw in ['企业所得税', '所得税', '企业所得税法', '汇算清缴']):
-            tax_types.append(TaxType.CIT)
-        if any(kw in text for kw in ['个人所得税', '工资薪金', '劳务报酬', '个税']):
-            tax_types.append(TaxType.IIT)
+            for selector in content_selectors:
+                content_elem = soup.select_one(selector)
+                if content_elem:
+                    # 清理内容
+                    text = content_elem.get_text(separator='\n', strip=True)
+                    result['content'] = text
+                    break
 
-        # 如果没有匹配到任何税种，默认为增值税
-        if not tax_types:
-            tax_types.append(TaxType.OTHER)
+            # 如果没找到内容，尝试提取整个body
+            if not result['content']:
+                body = soup.find('body')
+                if body:
+                    # 移除script和style标签
+                    for script in body(['script', 'style', 'nav', 'header', 'footer']):
+                        script.decompose()
+                    result['content'] = body.get_text(separator='\n', strip=True)
 
-        return tax_types
+        except Exception as e:
+            self.logger.error(f"Error extracting content: {e}")
+
+        return result
+
+    def _extract_document_number_from_soup(self, soup: BeautifulSoup) -> Optional[str]:
+        """从页面中提取发文字号"""
+        # 查找包含发文字号的元素
+        patterns = [
+            r'财[政关税]\s*〔\[\(]\s*\d{4}\s*[\]\)\〕]\s*号',
+            r'税\s*总\s*发\s*〔\[\(]\s*\d{4}\s*[\]\)\〕]\s*号',
+            r'国家税务总局公告\s*\d{4}\s*年\s*第\s*\d+\s*号',
+        ]
+
+        # 在整个页面中搜索
+        page_text = soup.get_text()
+
+        for pattern in patterns:
+            match = re.search(pattern, page_text)
+            if match:
+                return match.group(0)
+
+        return None
+
+    def _extract_publish_date_from_soup(self, soup: BeautifulSoup) -> Optional[datetime]:
+        """从页面中提取发布日期"""
+        # 查找日期元素
+        date_patterns = [
+            r'成文日期[：:]\s*(\d{4})[年\-](\d{1,2})[月\-](\d{1,2})',
+            r'发布日期[：:]\s*(\d{4})[年\-](\d{1,2})[月\-](\d{1,2})',
+            r'(\d{4})[年\-](\d{1,2})[月\-](\d{1,2})',
+        ]
+
+        page_text = soup.get_text()
+
+        for pattern in date_patterns:
+            match = re.search(pattern, page_text)
+            if match:
+                try:
+                    year, month, day = match.groups()[:3]
+                    return datetime(int(year), int(month), int(day))
+                except (ValueError, IndexError):
+                    pass
+
+        return None
+
+    def crawl_category(self, category_id: str, max_pages: int = 5) -> Dict[str, int]:
+        """
+        爬取指定栏目
+        """
+        self.logger.info(f"Crawling category: {category_id}")
+
+        list_url = self.get_category_list_url(category_id)
+        detail_urls = self.crawl_list_page(list_url, max_pages)
+
+        stats = {'total': len(detail_urls), 'success': 0, 'failed': 0, 'duplicate': 0}
+
+        # 获取栏目配置
+        config = self.category_config.get(category_id, {})
+
+        for url in detail_urls:
+            try:
+                policy_data = self.crawl_detail_page(url)
+                if policy_data:
+                    # 应用栏目配置
+                    if config.get('level'):
+                        policy_data['document_level'] = config['level']
+                    if config.get('type'):
+                        policy_data['document_type'] = config['type']
+                    if config.get('tax_category'):
+                        policy_data['tax_category'] = config['tax_category']
+
+                    if self.save_policy(policy_data):
+                        stats['success'] += 1
+                    else:
+                        stats['duplicate'] += 1
+                else:
+                    stats['failed'] += 1
+            except Exception as e:
+                self.logger.error(f"Failed to crawl {url}: {e}")
+                stats['failed'] += 1
+
+        self.logger.info(f"Category {category_id} completed: {stats}")
+        return stats
+
+    def crawl_all(self, categories: List[str] = None, max_pages_per_category: int = 3) -> Dict[str, Any]:
+        """
+        爬取所有指定栏目
+        """
+        if categories is None:
+            categories = ['c100001', 'c100002', 'c100003', 'c100004', 'c100005']
+
+        total_stats = {
+            'total': 0,
+            'success': 0,
+            'failed': 0,
+            'duplicate': 0,
+            'by_category': {}
+        }
+
+        for category_id in categories:
+            category_name = self.category_config.get(category_id, {}).get('type', category_id)
+            self.logger.info(f"Starting category: {category_name} ({category_id})")
+
+            stats = self.crawl_category(category_id, max_pages_per_category)
+
+            total_stats['total'] += stats['total']
+            total_stats['success'] += stats['success']
+            total_stats['failed'] += stats['failed']
+            total_stats['duplicate'] += stats['duplicate']
+            total_stats['by_category'][category_name] = stats
+
+        self.logger.info(f"All categories completed: {total_stats}")
+        return total_stats
+
+    def crawl_laws(self, max_pages: int = 1) -> Dict[str, int]:
+        """爬取法律（L1）"""
+        return self.crawl_category('c100001', max_pages)
+
+    def crawl_regulations(self, max_pages: int = 2) -> Dict[str, int]:
+        """爬取行政法规（L1）"""
+        return self.crawl_category('c100002', max_pages)
+
+    def crawl_rules(self, max_pages: int = 5) -> Dict[str, int]:
+        """爬取部门规章（L2）"""
+        return self.crawl_category('c100003', max_pages)
+
+    def crawl_fiscal_docs(self, max_pages: int = 10) -> Dict[str, int]:
+        """爬取财税文件（L2）"""
+        return self.crawl_category('c100004', max_pages)
+
+    def crawl_normative_docs(self, max_pages: int = 5) -> Dict[str, int]:
+        """爬取规范性文件（L3）"""
+        return self.crawl_category('c100005', max_pages)
+
+    def crawl_interpretations(self, max_pages: int = 5) -> Dict[str, int]:
+        """爬取政策解读（L4）"""
+        return self.crawl_category('c100015', max_pages)
+
+
+# 便捷函数
+def crawl_chinatax(db_connector, categories: List[str] = None, max_pages: int = 3) -> Dict[str, Any]:
+    """
+    便捷函数：爬取国家税务总局政策法规库
+    """
+    crawler = ChinaTaxCrawler(db_connector)
+
+    try:
+        if categories is None:
+            # 默认爬取主要栏目
+            categories = ['c100001', 'c100002', 'c100003', 'c100004']
+
+        return crawler.crawl_all(categories, max_pages)
+    finally:
+        crawler.close()
+
+
+if __name__ == "__main__":
+    # 测试代码
+    logging.basicConfig(level=logging.INFO)
+
+    from .database import MongoDBConnector
+
+    db = MongoDBConnector()
+    crawler = ChinaTaxCrawler(db)
+
+    try:
+        # 测试爬取法律（只爬1页）
+        stats = crawler.crawl_laws(max_pages=1)
+        print(f"Crawl completed: {stats}")
+    finally:
+        crawler.close()
+        db.close()

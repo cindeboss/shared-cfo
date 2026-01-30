@@ -27,7 +27,7 @@ from datetime import datetime
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
-from crawler.database_v2 import MongoDBConnectorV2
+from crawler.database import MongoDBConnector
 from crawler.orchestrator import CrawlerOrchestrator
 from crawler.relationship_builder import PolicyRelationshipBuilder
 from crawler.quality_validator import DataQualityValidator
@@ -56,7 +56,7 @@ def cmd_crawl(args):
     tracker = get_tracker()
     tracker.add_note(f"开始爬取任务: phase={args.phase}")
 
-    db = MongoDBConnectorV2()
+    db = MongoDBConnector()
     orchestrator = CrawlerOrchestrator(db)
 
     try:
@@ -98,7 +98,7 @@ def cmd_build_relationships(args):
     tracker = get_tracker()
     tracker.add_note("开始构建政策关联关系")
 
-    db = MongoDBConnectorV2()
+    db = MongoDBConnector()
     builder = PolicyRelationshipBuilder(db)
 
     try:
@@ -123,7 +123,7 @@ def cmd_validate(args):
     tracker = get_tracker()
     tracker.add_note("开始验证数据质量")
 
-    db = MongoDBConnectorV2()
+    db = MongoDBConnector()
     validator = DataQualityValidator(db)
 
     try:
@@ -151,7 +151,7 @@ def cmd_deduplicate(args):
     tracker = get_tracker()
     tracker.add_note("开始数据去重")
 
-    db = MongoDBConnectorV2()
+    db = MongoDBConnector()
     validator = DataQualityValidator(db)
 
     try:
@@ -172,7 +172,7 @@ def cmd_deduplicate(args):
 
 def cmd_status(args):
     """查看系统状态"""
-    db = MongoDBConnectorV2()
+    db = MongoDBConnector()
 
     try:
         report = CrawlerOrchestrator(db).get_progress_report()
@@ -212,7 +212,7 @@ def cmd_status(args):
 
 def cmd_export(args):
     """导出数据报告"""
-    db = MongoDBConnectorV2()
+    db = MongoDBConnector()
 
     try:
         quality_report = db.get_quality_report()
